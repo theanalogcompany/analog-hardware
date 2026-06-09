@@ -1,16 +1,17 @@
 /*
- * analog-hardware — Stage 1: serial-triggered transaction loop.
+ * analog-hardware — Stage 2: polled token source.
  *
- * Type `txn` in the serial monitor to fake a transaction. Each one mints a fresh
- * token, rewrites the NFC tag with an sms: URL carrying it, then flips the e-ink
- * to the "we have thoughts" state. Proves the whole physical loop end-to-end,
- * no network. Network/Square/real-art come in later stages.
+ * Connects to WiFi and polls a mock endpoint for the current token. When the
+ * token changes, fires onTransaction() — the same path Stage 1 used: rewrite the
+ * NFC tag with an sms: URL carrying the token, then flip the e-ink. Typing `txn`
+ * in the serial monitor still works as a manual override.
  */
 
 #include <Arduino.h>   // PlatformIO needs this explicitly; Arduino IDE added it for you
 #include "config.h"
 #include "nfc.h"
 #include "display.h"
+#include "net.h"
 
 static uint16_t tokenCounter = 0;
 
@@ -41,13 +42,31 @@ void setup() {
   nfcBegin();
   displayBegin();
   displayIdle();
+  netBegin();
 
-  Serial.println("\n--- analog-hardware: Stage 1 ready ---");
+  Serial.println("\n--- analog-hardware: Stage 2 ready ---");
   Serial.printf("Device %s -> %s\n", DEVICE_ID, VENUE_NUMBER);
-  Serial.println("Type `txn` and hit enter to fake a transaction.");
+  Serial.printf("Polling %s every %d ms.\n", TOKEN_URL, POLL_INTERVAL_MS);
+  Serial.println("Type `txn` and hit enter to fake a transaction (manual override).");
 }
 
 void loop() {
+  // --- network poll (millis()-based, never delay()) ---
+  static uint32_t lastPoll = 0;
+  static String lastToken = "";
+  if (millis() - lastPoll >= POLL_INTERVAL_MS) {
+    lastPoll = millis();
+    String token;
+    if (pollToken(token) && token != lastToken) {
+      // Fire ONLY on change — firing every poll would thrash the panel with a
+      // ~30s refresh each time.
+      Serial.printf("[poll] token changed: '%s' -> '%s'\n", lastToken.c_str(), token.c_str());
+      onTransaction(token.c_str());
+      lastToken = token;
+    }
+  }
+
+  // --- manual serial override ---
   static char line[64];
   static uint8_t len = 0;
 

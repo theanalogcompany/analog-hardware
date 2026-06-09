@@ -11,9 +11,18 @@
 #define GREETING      "we have thoughts on your order"
 #define GREETING_BODY "we%20have%20thoughts%20on%20your%20order"
 
-// Identifies this unit (unused in stage 1, here for the upcoming network stage).
+// Identifies this unit.
 #define DEVICE_ID     "analog-001"
 
-// ---- Stage 2 TODO: WiFi creds for polling / Square ----
-// #define WIFI_SSID "..."
-// #define WIFI_PASS "..."
+// ---- Stage 2: WiFi + polled token source ----
+
+// WiFi credentials.
+#define WIFI_SSID "Jaipal's iPhone"
+#define WIFI_PASS "jaipal123"
+
+// Mock token endpoint. Returns {"token":"..."}. Poll for the current token;
+// onTransaction() fires when it changes.
+#define TOKEN_URL "http://192.0.0.2:8000/token.json"
+
+// How often to poll TOKEN_URL.
+#define POLL_INTERVAL_MS 4000
