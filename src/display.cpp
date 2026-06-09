@@ -42,6 +42,9 @@ static const uint16_t epaper_colors[] = {
 
 // Proven paged draw: blit a full-screen palette-indexed image to the panel.
 static void drawImage(const uint8_t* img) {
+  // Pilot telemetry: the 7C refresh waveform dominates this wall-clock and is
+  // temperature-dependent, so we log it per unit/venue. ~29s near the panel floor.
+  uint32_t t0 = millis();
   display.setFullWindow();
   display.firstPage();
   do {
@@ -50,6 +53,7 @@ static void drawImage(const uint8_t* img) {
       for (int32_t x = 0; x < IMG_W; x++)
         display.drawPixel(x, y, epaper_colors[img[y * IMG_W + x]]);
   } while (display.nextPage());
+  Serial.printf("[disp] refresh: %lu ms\n", millis() - t0);
 }
 
 void displayIdle() {
