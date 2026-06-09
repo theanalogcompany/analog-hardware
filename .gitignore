@@ -3,3 +3,6 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# make_images.py QA previews — regenerable, not build inputs
+tools/preview_*.png
