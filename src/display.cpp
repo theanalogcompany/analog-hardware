@@ -1,17 +1,17 @@
 /*
- * Analog display — 7.3" 7-colour e-ink (GDEP073E01) on the reTerminal E1002.
+ * Analog display — 7.5" mono e-ink (GDEY075T7 / UC8179) on the reTerminal E1001.
  *
- * Init lifted verbatim from the proven image sketch (tools/analog_display_swap.ino):
- * write-only HSPI, no MISO. The two states render full-screen artwork baked into
- * flash by make_images.py -> images.h (IMG_RESTING / IMG_THOUGHTS).
+ * Confirmed via bring-up: class GxEPD2_750_GDEY075T7, full refresh ~1.2-2.3s,
+ * hasFastPartialUpdate. Write-only HSPI, no MISO. The two states render full-screen
+ * 1-bpp artwork baked into flash by make_images.py (mono path) -> images.h.
  */
 
 #include "display.h"
 #include <SPI.h>
-#include <GxEPD2_7C.h>
-#include "images.h"            // IMG_RESTING[], IMG_THOUGHTS[], IMG_W, IMG_H
+#include <GxEPD2_BW.h>
+#include "images.h"            // IMG_RESTING[], IMG_THOUGHTS[], IMG_W, IMG_H (packed 1-bpp)
 
-// ePaper display pins (reTerminal E series)
+// ePaper display pins (reTerminal E series — same on E1001 and E1002)
 #define EPD_SCK_PIN  7
 #define EPD_MOSI_PIN 9
 #define EPD_CS_PIN   10
@@ -24,8 +24,8 @@
                          ? EPD::HEIGHT : MAX_DISPLAY_BUFFER_SIZE / (EPD::WIDTH / 8))
 
 static SPIClass hspi(HSPI);
-static GxEPD2_7C<GxEPD2_730c_GDEP073E01, MAX_HEIGHT(GxEPD2_730c_GDEP073E01)>
-    display(GxEPD2_730c_GDEP073E01(EPD_CS_PIN, EPD_DC_PIN, EPD_RES_PIN, EPD_BUSY_PIN));
+static GxEPD2_BW<GxEPD2_750_GDEY075T7, MAX_HEIGHT(GxEPD2_750_GDEY075T7)>
+    display(GxEPD2_750_GDEY075T7(EPD_CS_PIN, EPD_DC_PIN, EPD_RES_PIN, EPD_BUSY_PIN));
 
 void displayBegin() {
   hspi.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, -1);   // write-only, no MISO
@@ -34,32 +34,32 @@ void displayBegin() {
   display.setRotation(0);
 }
 
-// palette index (from images.h) -> GxEPD2 colour. Order MUST mirror the PURE[]
-// table in make_images.py: BLACK, WHITE, GREEN, BLUE, RED, YELLOW.
-static const uint16_t epaper_colors[] = {
-  GxEPD_BLACK, GxEPD_WHITE, GxEPD_GREEN, GxEPD_BLUE, GxEPD_RED, GxEPD_YELLOW
-};
-
-// Proven paged draw: blit a full-screen palette-indexed image to the panel.
-static void drawImage(const uint8_t* img) {
-  // Pilot telemetry: the 7C refresh waveform dominates this wall-clock and is
-  // temperature-dependent, so we log it per unit/venue. ~29s near the panel floor.
+// Full-refresh blit of a packed 1-bpp full-screen bitmap (1=white, 0=black).
+// refresh(false) does the full waveform (~1.6s) and auto powers the panel off.
+static void showImageFull(const uint8_t* bitmap) {
   uint32_t t0 = millis();
   display.setFullWindow();
-  display.firstPage();
-  do {
-    display.fillScreen(GxEPD_WHITE);
-    for (int32_t y = 0; y < IMG_H; y++)
-      for (int32_t x = 0; x < IMG_W; x++)
-        display.drawPixel(x, y, epaper_colors[img[y * IMG_W + x]]);
-  } while (display.nextPage());
-  Serial.printf("[disp] refresh: %lu ms\n", millis() - t0);
+  display.writeImage(bitmap, 0, 0, IMG_W, IMG_H, false /*invert*/, false /*mirror_y*/, false /*pgm*/);
+  display.refresh(false);
+  Serial.printf("[disp] refresh(full): %lu ms\n", millis() - t0);
+}
+
+// Fast differential full-screen flip (~0.45s). refresh(true) uses the partial
+// waveform and does NOT auto power-off, so we do it. Partial updates accumulate
+// slight ghosting over many flips; displayIdle()'s FULL refresh clears it.
+static void showImagePartial(const uint8_t* bitmap) {
+  uint32_t t0 = millis();
+  display.setPartialWindow(0, 0, IMG_W, IMG_H);
+  display.writeImage(bitmap, 0, 0, IMG_W, IMG_H, false /*invert*/, false /*mirror_y*/, false /*pgm*/);
+  display.refresh(true);
+  display.powerOff();
+  Serial.printf("[disp] refresh(partial): %lu ms\n", millis() - t0);
 }
 
 void displayIdle() {
-  drawImage(IMG_RESTING);
+  showImageFull(IMG_RESTING);       // FULL — also clears partial-update ghosting on return to idle
 }
 
 void displayThoughts() {
-  drawImage(IMG_THOUGHTS);
+  showImagePartial(IMG_THOUGHTS);   // PARTIAL — fast flip
 }
