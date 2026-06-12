@@ -6,3 +6,6 @@
 
 # make_images.py QA previews — regenerable, not build inputs
 tools/preview_*.png
+
+# macOS
+.DS_Store
