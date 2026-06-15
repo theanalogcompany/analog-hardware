@@ -19,7 +19,7 @@
 
 enum DisplayState { RESTING, THOUGHTS };
 static DisplayState state = RESTING;
-static uint32_t thoughtsShownAt = 0;   // millis() when THOUGHTS was last (re)armed
+static uint32_t lastTxnAt = 0;         // millis() of the last transaction (arms the timeout)
 static uint16_t tokenCounter = 0;
 
 // Build the sms: payload and write the tag. token == null/empty -> no token line
@@ -44,20 +44,25 @@ static void goResting() {
   Serial.println("[state] RESTING");
 }
 
-// A transaction landed (serial or poll). Always refresh the tag with the token.
-// Only drive the (slow) display refresh on the RESTING -> THOUGHTS transition;
-// a second txn while already in THOUGHTS just swaps the token, no re-flash.
+// A transaction landed (serial or poll). Always rewrite the tag with the new
+// token first (I2C, instant), then refresh the screen:
+//   RESTING  -> THOUGHTS : PARTIAL refresh (fast, reads as responsive).
+//   THOUGHTS (re-fire)   : FULL refresh re-show — a partial of identical content
+//                          would be invisible; the flash is the "updated for you"
+//                          cue for the next guest. (Intentional, do NOT skip.)
+// Either way the timeout window restarts.
 static void onTransaction(const char* token) {
   Serial.printf("\n[txn] token=%s\n", token);
   writeTag(token);
-  thoughtsShownAt = millis();
   if (state == RESTING) {
     displayThoughts();           // partial flip
     state = THOUGHTS;
-    Serial.println("[state] THOUGHTS (image shown)");
+    Serial.println("[state] RESTING -> THOUGHTS (partial)");
   } else {
-    Serial.println("[state] THOUGHTS (token swapped, no re-flash)");
+    displayThoughtsFull();       // visible full-refresh re-show
+    Serial.println("[state] THOUGHTS re-fire (full re-show)");
   }
+  lastTxnAt = millis();
 }
 
 void setup() {
@@ -82,11 +87,12 @@ void setup() {
 }
 
 void loop() {
-  // --- auto-reset THOUGHTS -> RESTING after the timeout (millis-based, no delay) ---
-  if (state == THOUGHTS && millis() - thoughtsShownAt >= THOUGHTS_TIMEOUT_MS) {
-    Serial.println("[state] thoughts timed out");
-    goResting();
-  }
+  // Coalesce all transactions seen this pass (poll + any buffered serial lines)
+  // into a single most-recent token -> one refresh. The GxEPD2 refresh blocks
+  // ~2.3s; anything that arrives during it is drained on the NEXT pass and again
+  // coalesced, so we never run back-to-back refreshes.
+  char pendingToken[64];
+  bool haveTxn = false;
 
   // --- network poll (millis()-based, never delay()) ---
   static uint32_t lastPoll = 0;
@@ -95,17 +101,17 @@ void loop() {
     lastPoll = millis();
     String token;
     if (pollToken(token) && token != lastToken) {
-      // Fire ONLY on change — firing every poll would thrash the panel.
       Serial.printf("[poll] token changed: '%s' -> '%s'\n", lastToken.c_str(), token.c_str());
-      onTransaction(token.c_str());
       lastToken = token;
+      snprintf(pendingToken, sizeof(pendingToken), "%s", token.c_str());
+      haveTxn = true;
     }
   }
 
-  // --- manual serial override ---
+  // --- manual serial override: drain ALL buffered input; if several `txn`s
+  //     queued (e.g. during the last refresh), keep only the most recent ---
   static char line[64];
   static uint8_t len = 0;
-
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n' || c == '\r') {
@@ -113,14 +119,23 @@ void loop() {
       line[len] = '\0';
       len = 0;
       if (strcmp(line, "txn") == 0) {
-        char token[8];
-        snprintf(token, sizeof(token), "t%03u", ++tokenCounter);
-        onTransaction(token);
+        snprintf(pendingToken, sizeof(pendingToken), "t%03u", ++tokenCounter);
+        haveTxn = true;
       } else {
         Serial.printf("unknown command: '%s' (try `txn`)\n", line);
       }
     } else if (len < sizeof(line) - 1) {
       line[len++] = c;
     }
+  }
+
+  // One coalesced transaction -> one refresh.
+  if (haveTxn) onTransaction(pendingToken);
+
+  // --- auto-revert THOUGHTS -> RESTING after the timeout (millis-based, no delay).
+  //     A txn just handled above re-armed lastTxnAt, so this won't double-fire. ---
+  if (state == THOUGHTS && millis() - lastTxnAt >= THOUGHTS_TIMEOUT_MS) {
+    Serial.println("[state] thoughts timed out");
+    goResting();
   }
 }

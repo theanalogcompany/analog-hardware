@@ -61,5 +61,9 @@ void displayIdle() {
 }
 
 void displayThoughts() {
-  showImagePartial(IMG_THOUGHTS);   // PARTIAL — fast flip
+  showImagePartial(IMG_THOUGHTS);   // PARTIAL — fast RESTING->THOUGHTS flip
+}
+
+void displayThoughtsFull() {
+  showImageFull(IMG_THOUGHTS);      // FULL — visible re-show flash on a THOUGHTS re-fire
 }

@@ -9,3 +9,6 @@ tools/preview_*.png
 
 # macOS
 .DS_Store
+
+# per-device secrets (copy config.h.example -> config.h)
+src/config.h

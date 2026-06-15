@@ -1,14 +1,18 @@
 #pragma once
 #include <Arduino.h>
 
-// 7.3" 7-colour e-ink (GDEP073E01) on the reTerminal E1002, write-only HSPI.
+// 7.5" mono e-ink (GDEY075T7 / UC8179) on the reTerminal E1001, write-only HSPI.
 
 // Bring up the panel. Call once in setup().
 void displayBegin();
 
-// Idle state — "Analog". Quick to call but the panel refresh blocks ~15s.
+// Resting state — full refresh (~2.3s). Also clears partial-update ghosting.
 void displayIdle();
 
-// Post-transaction state — the "we have thoughts" prompt. Blocks ~15s on the
-// colour refresh, so call it AFTER the NFC tag rewrite.
+// Thoughts state — fast PARTIAL refresh (~1.3s). Use for the RESTING->THOUGHTS flip.
 void displayThoughts();
+
+// Thoughts state — FULL refresh (~2.3s). Use to re-show thoughts on a re-fire so
+// the flash is a visible "it updated for you" cue (a partial of identical content
+// would be invisible).
+void displayThoughtsFull();
