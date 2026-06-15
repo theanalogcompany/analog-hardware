@@ -1,10 +1,14 @@
 /*
- * analog-hardware — Stage 2: polled token source.
+ * analog-hardware — RESTING/THOUGHTS state machine, always-tappable tag.
  *
- * Connects to WiFi and polls a mock endpoint for the current token. When the
- * token changes, fires onTransaction() — the same path Stage 1 used: rewrite the
- * NFC tag with an sms: URL carrying the token, then flip the e-ink. Typing `txn`
- * in the serial monitor still works as a manual override.
+ * The NFC tag ALWAYS carries a valid sms: payload:
+ *   RESTING : sms:+VENUE&body=GREETING_BODY            (no token line)
+ *   THOUGHTS: sms:+VENUE&body=GREETING_BODY%0A<token>  (token on line 2)
+ *
+ * onTransaction() (serial `txn` or a changed polled token) writes the THOUGHTS
+ * payload and flips the screen (partial). After THOUGHTS_TIMEOUT_MS the loop
+ * reverts to RESTING (full refresh, no ghost) and rewrites the no-token tag.
+ * The NDEF write path (nfc.cpp) is reused exactly — only the payload varies.
  */
 
 #include <Arduino.h>   // PlatformIO needs this explicitly; Arduino IDE added it for you
@@ -13,26 +17,47 @@
 #include "display.h"
 #include "net.h"
 
+enum DisplayState { RESTING, THOUGHTS };
+static DisplayState state = RESTING;
+static uint32_t thoughtsShownAt = 0;   // millis() when THOUGHTS was last (re)armed
 static uint16_t tokenCounter = 0;
 
-// Fake transaction: build the sms: URL with this token, rewrite the tag, update
-// the screen. NFC write FIRST (instant) — the e-ink refresh blocks ~15s, so it
-// must come last or it would stall the tag rewrite.
-static void onTransaction(const char* token) {
+// Build the sms: payload and write the tag. token == null/empty -> no token line
+// (RESTING payload). Reuses the existing NDEF write path exactly; only the
+// payload string varies.
+static bool writeTag(const char* token) {
   char url[256];
-  snprintf(url, sizeof(url), "sms:%s&body=%s%%0A%s", VENUE_NUMBER, GREETING_BODY, token);
+  if (token && token[0] != '\0')
+    snprintf(url, sizeof(url), "sms:%s&body=%s%%0A%s", VENUE_NUMBER, GREETING_BODY, token);
+  else
+    snprintf(url, sizeof(url), "sms:%s&body=%s", VENUE_NUMBER, GREETING_BODY);
+  Serial.printf("[tag] %s\n", url);
+  return nfcWriteSmsUrl(url);
+}
 
+// Revert to RESTING: no-token tag + resting image (FULL refresh clears any
+// partial-update ghosting).
+static void goResting() {
+  writeTag(nullptr);
+  displayIdle();
+  state = RESTING;
+  Serial.println("[state] RESTING");
+}
+
+// A transaction landed (serial or poll). Always refresh the tag with the token.
+// Only drive the (slow) display refresh on the RESTING -> THOUGHTS transition;
+// a second txn while already in THOUGHTS just swaps the token, no re-flash.
+static void onTransaction(const char* token) {
   Serial.printf("\n[txn] token=%s\n", token);
-  Serial.printf("[txn] url=%s\n", url);
-
-  if (nfcWriteSmsUrl(url)) {
-    Serial.println("[txn] tag rewritten — refreshing screen (~15s)...");
+  writeTag(token);
+  thoughtsShownAt = millis();
+  if (state == RESTING) {
+    displayThoughts();           // partial flip
+    state = THOUGHTS;
+    Serial.println("[state] THOUGHTS (image shown)");
   } else {
-    Serial.println("[txn] NFC write FAILED — refreshing screen anyway.");
+    Serial.println("[state] THOUGHTS (token swapped, no re-flash)");
   }
-
-  displayThoughts();
-  Serial.println("[txn] done. Type txn for the next one.");
 }
 
 void setup() {
@@ -41,16 +66,28 @@ void setup() {
 
   nfcBegin();
   displayBegin();
+
+  // Boot into RESTING: tag tappable immediately, resting image on screen.
+  writeTag(nullptr);
   displayIdle();
+  state = RESTING;
+
   netBegin();
 
-  Serial.println("\n--- analog-hardware: Stage 2 ready ---");
+  Serial.println("\n--- analog-hardware: RESTING/THOUGHTS state machine ready ---");
   Serial.printf("Device %s -> %s\n", DEVICE_ID, VENUE_NUMBER);
   Serial.printf("Polling %s every %d ms.\n", TOKEN_URL, POLL_INTERVAL_MS);
+  Serial.printf("THOUGHTS auto-reverts to RESTING after %d ms.\n", THOUGHTS_TIMEOUT_MS);
   Serial.println("Type `txn` and hit enter to fake a transaction (manual override).");
 }
 
 void loop() {
+  // --- auto-reset THOUGHTS -> RESTING after the timeout (millis-based, no delay) ---
+  if (state == THOUGHTS && millis() - thoughtsShownAt >= THOUGHTS_TIMEOUT_MS) {
+    Serial.println("[state] thoughts timed out");
+    goResting();
+  }
+
   // --- network poll (millis()-based, never delay()) ---
   static uint32_t lastPoll = 0;
   static String lastToken = "";
@@ -58,8 +95,7 @@ void loop() {
     lastPoll = millis();
     String token;
     if (pollToken(token) && token != lastToken) {
-      // Fire ONLY on change — firing every poll would thrash the panel with a
-      // ~30s refresh each time.
+      // Fire ONLY on change — firing every poll would thrash the panel.
       Serial.printf("[poll] token changed: '%s' -> '%s'\n", lastToken.c_str(), token.c_str());
       onTransaction(token.c_str());
       lastToken = token;

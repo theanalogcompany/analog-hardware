@@ -17,8 +17,8 @@
 // ---- Stage 2: WiFi + polled token source ----
 
 // WiFi credentials.
-#define WIFI_SSID "Jaipal's iPhone"
-#define WIFI_PASS "jaipal123"
+#define WIFI_SSID "Pinkdeer"
+#define WIFI_PASS "Violet4877"
 
 // Mock token endpoint. Returns {"token":"..."}. Poll for the current token;
 // onTransaction() fires when it changes.
@@ -26,3 +26,6 @@
 
 // How often to poll TOKEN_URL.
 #define POLL_INTERVAL_MS 4000
+
+// How long the THOUGHTS state stays up before auto-reverting to RESTING.
+#define THOUGHTS_TIMEOUT_MS 30000
