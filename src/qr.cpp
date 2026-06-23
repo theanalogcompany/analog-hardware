@@ -1,11 +1,6 @@
 #include "qr.h"
-#include "qrcode.h"     // ricmoo/QRCode
+#include "qrcode.h"   // ricmoo/QRCode (lib_deps) — NOT the ESP-IDF esp_qrcode of the same name
 #include <cstring>
-
-// Scratch buffer size for QR version 6: ((4*6+17)*(4*6+17)+7)/8 = (41*41+7)/8 = 211 bytes.
-// Using a compile-time constant to avoid a VLA (avoids potential -Werror=vla rejection
-// under both native clang and ESP32 gcc builds).
-#define QR_SCRATCH_BYTES 211
 
 bool qrEncodeToBitmap(const char* url, uint8_t* outBuf, size_t outCap) {
   if (std::strlen(url) > QR_BYTE_CAPACITY) return false;   // never truncate

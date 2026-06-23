@@ -15,6 +15,9 @@
 #define QR_PX             ((QR_MODULES + 2 * QR_QUIET_MODULES) * QR_MODULE_PX) // 294
 #define QR_ROW_BYTES      ((QR_PX + 7) / 8)                                    // 37
 #define QR_BITMAP_BYTES   (QR_PX * QR_ROW_BYTES)                               // 10878
+// ricmoo/QRCode working-buffer size for QR_VERSION (qrcode_getBufferSize formula).
+// Derived from QR_VERSION so a version bump stays a single one-line change.
+#define QR_SCRATCH_BYTES (((4 * QR_VERSION + 17) * (4 * QR_VERSION + 17) + 7) / 8)  // V6 -> 211
 
 // Encode `url` into a packed 1-bpp bitmap (MSB-first, 1 = dark module),
 // QR_PX x QR_PX, with a QR_QUIET_MODULES quiet zone, each module scaled to
