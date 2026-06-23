@@ -1,19 +1,20 @@
 /*
- * analog-hardware — RESTING/THOUGHTS state machine, always-tappable tag.
+ * analog-hardware — RESTING/THOUGHTS state machine, on-screen QR deep link.
  *
- * The NFC tag ALWAYS carries a valid sms: payload:
+ * The panel ALWAYS shows a scannable QR of a valid sms: deep link:
  *   RESTING : sms:+VENUE&body=GREETING_BODY            (no token line)
  *   THOUGHTS: sms:+VENUE&body=GREETING_BODY%0A<token>  (token on line 2)
  *
- * onTransaction() (serial `txn` or a changed polled token) writes the THOUGHTS
- * payload and flips the screen (partial). After THOUGHTS_TIMEOUT_MS the loop
- * reverts to RESTING (full refresh, no ghost) and rewrites the no-token tag.
- * The NDEF write path (nfc.cpp) is reused exactly — only the payload varies.
+ * onTransaction() (serial `txn` or a changed polled token) renders the THOUGHTS
+ * QR. After THOUGHTS_TIMEOUT_MS the loop reverts to RESTING (no-token QR). The
+ * QR encodes the byte-identical string the NFC tag used to carry; inbound
+ * matching (reconcile-tap) is unchanged. Every render is a full refresh, which
+ * fully clears the prior code (no module ghosting).
  */
 
-#include <Arduino.h>   // PlatformIO needs this explicitly; Arduino IDE added it for you
+#include <Arduino.h>
 #include "config.h"
-#include "nfc.h"
+#include "smsurl.h"
 #include "display.h"
 #include "net.h"
 
@@ -22,65 +23,48 @@ static DisplayState state = RESTING;
 static uint32_t lastTxnAt = 0;         // millis() of the last transaction (arms the timeout)
 static uint16_t tokenCounter = 0;
 
-// Build the sms: payload and write the tag. token == null/empty -> no token line
-// (RESTING payload). Reuses the existing NDEF write path exactly; only the
-// payload string varies.
-static bool writeTag(const char* token) {
+// Build the sms: deep link and render it as a centered QR. token == null/empty
+// -> RESTING payload (no token line). Reuses buildSmsUrl verbatim; only the
+// render surface differs from the old NFC path.
+static void showQr(const char* token) {
   char url[256];
-  if (token && token[0] != '\0')
-    snprintf(url, sizeof(url), "sms:%s&body=%s%%0A%s", VENUE_NUMBER, GREETING_BODY, token);
-  else
-    snprintf(url, sizeof(url), "sms:%s&body=%s", VENUE_NUMBER, GREETING_BODY);
-  Serial.printf("[tag] %s\n", url);
-  return nfcWriteSmsUrl(url);
+  buildSmsUrl(VENUE_NUMBER, GREETING_BODY, token, url, sizeof(url));
+  Serial.printf("[qr] %s\n", url);
+  displayRenderQr(url);
 }
 
-// Revert to RESTING: no-token tag + resting image (FULL refresh clears any
-// partial-update ghosting).
+// Revert to RESTING: no-token QR.
 static void goResting() {
-  writeTag(nullptr);
-  displayIdle();
+  showQr(nullptr);
   state = RESTING;
   Serial.println("[state] RESTING");
 }
 
-// A transaction landed (serial or poll). Always rewrite the tag with the new
-// token first (I2C, instant), then refresh the screen:
-//   RESTING  -> THOUGHTS : PARTIAL refresh (fast, reads as responsive).
-//   THOUGHTS (re-fire)   : FULL refresh re-show — a partial of identical content
-//                          would be invisible; the flash is the "updated for you"
-//                          cue for the next guest. (Intentional, do NOT skip.)
-// Either way the timeout window restarts.
+// A transaction landed (serial or poll): render the token QR and (re)arm the
+// timeout. A new token produces a visibly different QR; the full refresh clears
+// the prior code so there is never a ghost of two codes.
 static void onTransaction(const char* token) {
   Serial.printf("\n[txn] token=%s\n", token);
-  writeTag(token);
-  if (state == RESTING) {
-    displayThoughts();           // partial flip
-    state = THOUGHTS;
-    Serial.println("[state] RESTING -> THOUGHTS (partial)");
-  } else {
-    displayThoughtsFull();       // visible full-refresh re-show
-    Serial.println("[state] THOUGHTS re-fire (full re-show)");
-  }
+  showQr(token);
+  state = THOUGHTS;
   lastTxnAt = millis();
+  Serial.println("[state] THOUGHTS");
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1500);
 
-  nfcBegin();
   displayBegin();
 
-  // Boot into RESTING: tag tappable immediately, resting image on screen.
-  writeTag(nullptr);
-  displayIdle();
+  // Boot into RESTING: no-token QR on screen.
+  showQr(nullptr);
   state = RESTING;
 
   netLoadCreds();
   netBegin();
 
-  Serial.println("\n--- analog-hardware: RESTING/THOUGHTS state machine ready ---");
+  Serial.println("\n--- analog-hardware: on-screen QR state machine ready ---");
   Serial.printf("Venue %s\n", VENUE_NUMBER);
   Serial.printf("Polling backend feed every %d ms.\n", POLL_INTERVAL_MS);
   Serial.printf("THOUGHTS auto-reverts to RESTING after %d ms.\n", THOUGHTS_TIMEOUT_MS);
