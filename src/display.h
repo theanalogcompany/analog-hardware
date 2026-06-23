@@ -6,13 +6,7 @@
 // Bring up the panel. Call once in setup().
 void displayBegin();
 
-// Resting state — full refresh (~2.3s). Also clears partial-update ghosting.
-void displayIdle();
-
-// Thoughts state — fast PARTIAL refresh (~1.3s). Use for the RESTING->THOUGHTS flip.
-void displayThoughts();
-
-// Thoughts state — FULL refresh (~2.3s). Use to re-show thoughts on a re-fire so
-// the flash is a visible "it updated for you" cue (a partial of identical content
-// would be invisible).
-void displayThoughtsFull();
+// Render `url` as a QR centered on a blank white 800x480 screen (full-window
+// paged refresh, ~1.2-2.3s). Fully clears any prior code. If `url` exceeds the
+// QR capacity ceiling (see qr.h), logs and leaves the screen unchanged.
+void displayRenderQr(const char* url);

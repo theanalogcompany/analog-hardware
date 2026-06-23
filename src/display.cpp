@@ -1,15 +1,15 @@
 /*
  * Analog display — 7.5" mono e-ink (GDEY075T7 / UC8179) on the reTerminal E1001.
  *
- * Confirmed via bring-up: class GxEPD2_750_GDEY075T7, full refresh ~1.2-2.3s,
- * hasFastPartialUpdate. Write-only HSPI, no MISO. The two states render full-screen
- * 1-bpp artwork baked into flash by make_images.py (mono path) -> images.h.
+ * Renders a single centered QR code on a blank white screen. The QR encodes the
+ * sms: deep link (see smsurl.cpp); scanning it opens Messages prefilled. No
+ * artwork — the whole screen is the QR's quiet zone.
  */
 
 #include "display.h"
+#include "qr.h"
 #include <SPI.h>
 #include <GxEPD2_BW.h>
-#include "images.h"            // IMG_RESTING[], IMG_THOUGHTS[], IMG_W, IMG_H (packed 1-bpp)
 
 // ePaper display pins (reTerminal E series — same on E1001 and E1002)
 #define EPD_SCK_PIN  7
@@ -23,9 +23,18 @@
 #define MAX_HEIGHT(EPD) (EPD::HEIGHT <= MAX_DISPLAY_BUFFER_SIZE / (EPD::WIDTH / 8) \
                          ? EPD::HEIGHT : MAX_DISPLAY_BUFFER_SIZE / (EPD::WIDTH / 8))
 
+#define PANEL_W 800
+#define PANEL_H 480
+// Center the QR_PX x QR_PX symbol on the panel. drawBitmap takes arbitrary x/y
+// (no byte-alignment constraint), so exact centering is fine.
+#define QR_X ((PANEL_W - QR_PX) / 2)   // 253
+#define QR_Y ((PANEL_H - QR_PX) / 2)   // 93
+
 static SPIClass hspi(HSPI);
 static GxEPD2_BW<GxEPD2_750_GDEY075T7, MAX_HEIGHT(GxEPD2_750_GDEY075T7)>
     display(GxEPD2_750_GDEY075T7(EPD_CS_PIN, EPD_DC_PIN, EPD_RES_PIN, EPD_BUSY_PIN));
+
+static uint8_t qrbuf[QR_BITMAP_BYTES];
 
 void displayBegin() {
   hspi.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, -1);   // write-only, no MISO
@@ -34,36 +43,19 @@ void displayBegin() {
   display.setRotation(0);
 }
 
-// Full-refresh blit of a packed 1-bpp full-screen bitmap (1=white, 0=black).
-// refresh(false) does the full waveform (~1.6s) and auto powers the panel off.
-static void showImageFull(const uint8_t* bitmap) {
+void displayRenderQr(const char* url) {
+  if (!qrEncodeToBitmap(url, qrbuf, sizeof(qrbuf))) {
+    Serial.printf("[qr] '%s' (%u B) exceeds capacity %d — screen unchanged\n",
+                  url, (unsigned)strlen(url), QR_BYTE_CAPACITY);
+    return;
+  }
   uint32_t t0 = millis();
   display.setFullWindow();
-  display.writeImage(bitmap, 0, 0, IMG_W, IMG_H, false /*invert*/, false /*mirror_y*/, false /*pgm*/);
-  display.refresh(false);
-  Serial.printf("[disp] refresh(full): %lu ms\n", millis() - t0);
-}
-
-// Fast differential full-screen flip (~0.45s). refresh(true) uses the partial
-// waveform and does NOT auto power-off, so we do it. Partial updates accumulate
-// slight ghosting over many flips; displayIdle()'s FULL refresh clears it.
-static void showImagePartial(const uint8_t* bitmap) {
-  uint32_t t0 = millis();
-  display.setPartialWindow(0, 0, IMG_W, IMG_H);
-  display.writeImage(bitmap, 0, 0, IMG_W, IMG_H, false /*invert*/, false /*mirror_y*/, false /*pgm*/);
-  display.refresh(true);
-  display.powerOff();
-  Serial.printf("[disp] refresh(partial): %lu ms\n", millis() - t0);
-}
-
-void displayIdle() {
-  showImageFull(IMG_RESTING);       // FULL — also clears partial-update ghosting on return to idle
-}
-
-void displayThoughts() {
-  showImagePartial(IMG_THOUGHTS);   // PARTIAL — fast RESTING->THOUGHTS flip
-}
-
-void displayThoughtsFull() {
-  showImageFull(IMG_THOUGHTS);      // FULL — visible re-show flash on a THOUGHTS re-fire
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+    // 1 = dark module -> black; 0 -> white. drawBitmap handles sub-byte x.
+    display.drawBitmap(QR_X, QR_Y, qrbuf, QR_PX, QR_PX, GxEPD_BLACK, GxEPD_WHITE);
+  } while (display.nextPage());
+  Serial.printf("[qr] render(full): %lu ms\n", millis() - t0);
 }
