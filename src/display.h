@@ -6,6 +6,10 @@
 // Bring up the panel. Call once in setup().
 void displayBegin();
 
+// RESTING state — full-screen café artwork (IMG_RESTING), full refresh (~2.3s).
+// Also clears any prior QR with no ghosting.
+void displayResting();
+
 // Render `url` as a QR centered on a blank white 800x480 screen (full-window
 // paged refresh, ~1.2-2.3s). Fully clears any prior code. If `url` exceeds the
 // QR capacity ceiling (see qr.h), logs and leaves the screen unchanged.

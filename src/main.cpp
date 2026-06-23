@@ -1,15 +1,15 @@
 /*
  * analog-hardware — RESTING/THOUGHTS state machine, on-screen QR deep link.
  *
- * The panel ALWAYS shows a scannable QR of a valid sms: deep link:
- *   RESTING : sms:+VENUE&body=GREETING_BODY            (no token line)
- *   THOUGHTS: sms:+VENUE&body=GREETING_BODY%0A<token>  (token on line 2)
+ *   RESTING : the baked café artwork (IMG_RESTING). No QR.
+ *   THOUGHTS: a scannable QR of the sms: deep link, only after a transaction:
+ *             sms:+VENUE&body=GREETING_BODY%0A<token>  (token on line 2)
  *
  * onTransaction() (serial `txn` or a changed polled token) renders the THOUGHTS
- * QR. After THOUGHTS_TIMEOUT_MS the loop reverts to RESTING (no-token QR). The
- * QR encodes the byte-identical string the NFC tag used to carry; inbound
- * matching (reconcile-tap) is unchanged. Every render is a full refresh, which
- * fully clears the prior code (no module ghosting).
+ * QR. After THOUGHTS_TIMEOUT_MS the loop reverts to RESTING (artwork). The QR
+ * encodes the byte-identical string the NFC tag used to carry; inbound matching
+ * (reconcile-tap) is unchanged. Every render is a full refresh, which fully
+ * clears the prior frame (no QR/module ghosting on revert).
  */
 
 #include <Arduino.h>
@@ -23,9 +23,9 @@ static DisplayState state = RESTING;
 static uint32_t lastTxnAt = 0;         // millis() of the last transaction (arms the timeout)
 static uint16_t tokenCounter = 0;
 
-// Build the sms: deep link and render it as a centered QR. token == null/empty
-// -> RESTING payload (no token line). Reuses buildSmsUrl verbatim; only the
-// render surface differs from the old NFC path.
+// Build the transaction's sms: deep link and render it as a centered QR. Reuses
+// buildSmsUrl verbatim; only the render surface differs from the old NFC path.
+// Only called for a real transaction token (RESTING shows artwork, not a QR).
 static void showQr(const char* token) {
   char url[256];
   buildSmsUrl(VENUE_NUMBER, GREETING_BODY, token, url, sizeof(url));
@@ -33,9 +33,9 @@ static void showQr(const char* token) {
   displayRenderQr(url);
 }
 
-// Revert to RESTING: no-token QR.
+// Revert to RESTING: the café artwork (full refresh clears any prior QR).
 static void goResting() {
-  showQr(nullptr);
+  displayResting();
   state = RESTING;
   Serial.println("[state] RESTING");
 }
@@ -57,8 +57,8 @@ void setup() {
 
   displayBegin();
 
-  // Boot into RESTING: no-token QR on screen.
-  showQr(nullptr);
+  // Boot into RESTING: café artwork on screen.
+  displayResting();
   state = RESTING;
 
   netLoadCreds();

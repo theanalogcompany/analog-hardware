@@ -8,6 +8,7 @@
 
 #include "display.h"
 #include "qr.h"
+#include "images.h"          // IMG_RESTING[], IMG_W, IMG_H (packed 1-bpp, 1=white 0=black)
 #include <SPI.h>
 #include <GxEPD2_BW.h>
 
@@ -41,6 +42,17 @@ void displayBegin() {
   display.epd2.selectSPI(hspi, SPISettings(4000000, MSBFIRST, SPI_MODE0));
   display.init(115200);
   display.setRotation(0);
+}
+
+// Full-refresh blit of the resting café artwork. writeImage treats 1=white,
+// 0=black (GxEPD2 convention, the byte order make_images.py emits). refresh(false)
+// runs the full waveform and auto powers the panel off.
+void displayResting() {
+  uint32_t t0 = millis();
+  display.setFullWindow();
+  display.writeImage(IMG_RESTING, 0, 0, IMG_W, IMG_H, false /*invert*/, false /*mirror_y*/, false /*pgm*/);
+  display.refresh(false);
+  Serial.printf("[disp] resting(full): %lu ms\n", millis() - t0);
 }
 
 void displayRenderQr(const char* url) {
