@@ -42,7 +42,9 @@ void test_qr_rejects_oversized_url(void) {
 
 void test_qr_rejects_small_buffer(void) {
   static uint8_t tiny[QR_BITMAP_BYTES - 1];
+  memset(tiny, 0xCD, sizeof(tiny));
   TEST_ASSERT_FALSE(qrEncodeToBitmap("sms:+1555&body=hi", tiny, sizeof(tiny)));
+  TEST_ASSERT_EQUAL_HEX8(0xCD, tiny[0]);  // buffer untouched
 }
 
 void test_qr_encodes_typical_url(void) {
