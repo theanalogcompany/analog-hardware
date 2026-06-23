@@ -15,21 +15,29 @@
 #define GREETING      "we have thoughts on your order"
 #define GREETING_BODY "we%20have%20thoughts%20on%20your%20order"
 
-// Identifies this unit.
-#define DEVICE_ID     "analog-001"
-
-// ---- WiFi + polled token source ----
+// ---- WiFi ----
 
 // WiFi credentials.
 #define WIFI_SSID "your-wifi-ssid"
 #define WIFI_PASS "your-wifi-password"
 
-// Mock token endpoint. Returns {"token":"..."}. Poll for the current token;
-// onTransaction() fires when it changes.
-#define TOKEN_URL "http://HOST:8000/token.json"
+// ---- Device event feed (analog-guest backend) ----
 
-// How often to poll TOKEN_URL.
-#define POLL_INTERVAL_MS 4000
+// Base URL of the analog-guest backend. NO trailing slash.
+//   dev:  "http://192.168.1.50:3000"   (your laptop's LAN IP, not localhost)
+//   prod: "https://guest.theanalog.company"
+// https:// is supported (TLS, certificate validation disabled for MVP).
+#define BACKEND_BASE_URL "http://HOST:3000"
+
+// Dev provisioning fallback. The live device id + raw bearer token are stored
+// in NVS (set once over serial: `prov <id> <token>`); these defaults are used
+// only when NVS is empty, matching the test guide.
+#define DEV_DEVICE_ID    "eink-test-1"
+#define DEV_DEVICE_TOKEN "my-test-token"
+
+// How often to poll the feed (ms). Keep well under THOUGHTS_TIMEOUT_MS so a
+// poll can't fight the RESTING auto-revert.
+#define POLL_INTERVAL_MS 10000
 
 // How long the THOUGHTS state stays up before auto-reverting to RESTING.
 #define THOUGHTS_TIMEOUT_MS 30000

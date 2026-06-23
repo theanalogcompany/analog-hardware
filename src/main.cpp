@@ -77,13 +77,14 @@ void setup() {
   displayIdle();
   state = RESTING;
 
+  netLoadCreds();
   netBegin();
 
   Serial.println("\n--- analog-hardware: RESTING/THOUGHTS state machine ready ---");
-  Serial.printf("Device %s -> %s\n", DEVICE_ID, VENUE_NUMBER);
-  Serial.printf("Polling %s every %d ms.\n", TOKEN_URL, POLL_INTERVAL_MS);
+  Serial.printf("Venue %s\n", VENUE_NUMBER);
+  Serial.printf("Polling backend feed every %d ms.\n", POLL_INTERVAL_MS);
   Serial.printf("THOUGHTS auto-reverts to RESTING after %d ms.\n", THOUGHTS_TIMEOUT_MS);
-  Serial.println("Type `txn` and hit enter to fake a transaction (manual override).");
+  Serial.println("Commands: `txn` (fake txn) | `prov <id> <token>` | `whoami` | `clearcursor`");
 }
 
 void loop() {
@@ -100,8 +101,8 @@ void loop() {
   if (millis() - lastPoll >= POLL_INTERVAL_MS) {
     lastPoll = millis();
     String token;
-    if (pollToken(token) && token != lastToken) {
-      Serial.printf("[poll] token changed: '%s' -> '%s'\n", lastToken.c_str(), token.c_str());
+    if (pollFeed(token) && token != lastToken) {
+      Serial.printf("[poll] new event token: '%s' -> '%s'\n", lastToken.c_str(), token.c_str());
       lastToken = token;
       snprintf(pendingToken, sizeof(pendingToken), "%s", token.c_str());
       haveTxn = true;
@@ -110,7 +111,7 @@ void loop() {
 
   // --- manual serial override: drain ALL buffered input; if several `txn`s
   //     queued (e.g. during the last refresh), keep only the most recent ---
-  static char line[64];
+  static char line[128];
   static uint8_t len = 0;
   while (Serial.available()) {
     char c = Serial.read();
@@ -121,8 +122,21 @@ void loop() {
       if (strcmp(line, "txn") == 0) {
         snprintf(pendingToken, sizeof(pendingToken), "t%03u", ++tokenCounter);
         haveTxn = true;
+      } else if (strcmp(line, "whoami") == 0) {
+        netWhoami();
+      } else if (strcmp(line, "clearcursor") == 0) {
+        netClearCursor();
+      } else if (strncmp(line, "prov ", 5) == 0) {
+        char* id = line + 5;
+        char* sp = strchr(id, ' ');
+        if (sp) {
+          *sp = '\0';
+          netProvision(id, sp + 1);
+        } else {
+          Serial.println("usage: prov <device_id> <token>");
+        }
       } else {
-        Serial.printf("unknown command: '%s' (try `txn`)\n", line);
+        Serial.printf("unknown command: '%s' (try `txn`, `prov <id> <token>`, `whoami`, `clearcursor`)\n", line);
       }
     } else if (len < sizeof(line) - 1) {
       line[len++] = c;
